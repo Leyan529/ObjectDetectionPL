@@ -3,6 +3,17 @@ My Frame work for Image Object Detection with pytorch Lightning + Albumentations
 ## Overview
 I organizize the object detection algorithms proposed in recent years, and focused on **`COCO`, `VOC`, `Mosquito containers`, `WiderPerson` , `Asia Traffic` and `BDD100K`** Dataset.
 
+### Status
+- [x] DataSet
+- [x] Training/Validiation Step
+- [x] TensorBoardLogger callback
+- [x] ModelCheckpoint callback
+- [x] Learning Rate Monitor
+- [x] GPUStats Monitor
+- [x] Early stop callback
+- [x] Read Best model path
+- [ ] Lightning with Argument Parser
+- [ ] Yolo v5 model
 
 ## Datasets:
 
