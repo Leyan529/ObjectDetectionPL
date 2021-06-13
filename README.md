@@ -1,5 +1,5 @@
 # ObjectDetection
-My Frame work for ObjectDetection
+My Frame work for Image Object Detection with pytorch Lightning + Albumentations
 ## Overview
 I organizize the object detection algorithms proposed in recent years, and focused on **`COCO`, `VOC`, `water containers` and `Asia Traffic`** Dataset.
 This frame work also include **`EarlyStopping mechanism`**.
