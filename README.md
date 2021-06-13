@@ -1,13 +1,12 @@
 # ObjectDetection
 My Frame work for Image Object Detection with pytorch Lightning + Albumentations
 ## Overview
-I organizize the object detection algorithms proposed in recent years, and focused on **`COCO`, `VOC`, `water containers` and `Asia Traffic`** Dataset.
-This frame work also include **`EarlyStopping mechanism`**.
+I organizize the object detection algorithms proposed in recent years, and focused on **`COCO`, `VOC`, `Mosquito containers`, `WiderPerson` , `Asia Traffic` and `BDD100K` ** Dataset.
 
 
 ## Datasets:
 
-I used 4 different datases: **`VOC`, `COCO`, `MosquitoContainer` and `Asian-Traffic`** . Statistics of datasets I used for experiments is shown below
+I used 6 different datases: **`COCO`, `VOC`, `Mosquito containers`, `WiderPerson` , `Asia Traffic` and `BDD100K` ** . Statistics of datasets I used for experiments is shown below
 
 - **VOC**:
   Download the voc images and annotations from [VOC2007](http://host.robots.ox.ac.uk/pascal/VOC/voc2007) or [VOC2012](http://host.robots.ox.ac.uk/pascal/VOC/voc2012). Make sure to put the files as the following structure:
@@ -111,44 +110,68 @@ In addition, existing open data sets for object detection in ADAS applications u
 ```
 
 ## Methods
-- Yolo V1
-- Yolo V2
-- Yolo V3
-- Yolo V4
+- RetinaNet
+- SSD
+- YOLOv2
+- YOLOv3
+- YOLOv4
 
 ## Prerequisites
 * **Windows 10**
-* **CUDA 10.1 (lower versions may work but were not tested)**
-* **NVIDIA GPU 1660 + CuDNN v7.3**
+* **CUDA 10.2**
+* **NVIDIA GPU 1660 + CuDNN v7.605**
 * **python 3.6.9**
-* **pytorch 1.10**
-* **opencv (cv2)**
-* **numpy**
-* **torchvision 0.4**
+* **pytorch 1.81**
+* **opencv-python 4.1.1.26**
+* **numpy 1.19.5**
+* **torchvision 0.9**
+* **torchsummary 1.5.1**
+* **Pillow 7.2.0**
+* **dlib==19.21**
+* **tensorflow-gpu 2.2.0**
+* **tensorboard 2.5.0** 
+* **pytorch-lightning 1.2.6**
+* **albumentations 0.5.2**
+
 
 ## Usage
 ### 0. Prepare the dataset
 * **Download custom dataset in the  `data_paths`.** 
 * **And create custom dataset `custom_dataset.py` in the `dataset`.**
 * **Test dataset mark to video (need to change `custom_dataset` in code)**
-```python
-python videoTest.py 
-```
 
-### 1. Train
-```python
-python train.py --model Yolo_v4 --batch_size 4 --n_gpu 1
-```
+### Execute (Train/Val + Test)
 
-### 2. Evaluate + Predict
+#### Asia
 ```python
-python predict.py --model Yolo_v4  --experiment_dir "run\AsiaTrafficDataset\Yolo_v4\experiment_10"
+python run.py --use AsiaModule --model YOLOV4
+```
+#### VOC
+```python
+python run.py --use VOCModule --model YOLOV4
+```
+#### COCO
+```python
+python run.py --use COCOModule --model YOLOV4
+```
+#### Mosquito
+```python
+python run.py --use MosquitoModule --model YOLOV4
+```
+#### WiderPerson
+```python
+python run.py --use WiderPersonModule --model YOLOV4
+```
+#### BDD100K
+```python
+python run.py --use BDD100KModule --model YOLOV4
 ```
 
 ## Reference
-- PyTorch-YOLOv1 : https://github.com/ssaru/You_Only_Look_Once/blob/master/yolov1.py
 - PyTorch-YOLOv2 : https://github.com/uvipen/Yolo-v2-pytorch/blob/9589413b5dce0476eb9cccc41945cf30cf131b34/src/yolo_net.py
-- tensorflow-yolov3 : https://github.com/Leyan529/tensorflow-yolov3
 - PyTorch-YOLOv3 : https://github.com/eavise-kul/lightnet/blob/b54f771a597d23863979d9274eb2ba90c05938e4/lightnet/models/_network_yolo_v3.py
 - PyTorch_YOLOv4 : https://github.com/Tianxiaomo/pytorch-YOLOv4/blob/4ccef0ec8fe984e059378813e33b3740929e0c19/models.py
 - SSD: https://github.com/sgrvinod/a-PyTorch-Tutorial-to-Object-Detection/blob/43fd8be9e82b351619a467373d211ee5bf73cef8/model.py#L323
+- RetinaNet: https://github.com/kuangliu/pytorch-retinanet/blob/2d7c663350f330a34771a8fa6a4f37a2baa52a1d/retinanet.py#L8
+- Albumentations : https://albumentations.ai/docs/examples/example_bboxes/
+- pytorch-lightning : https://pytorch-lightning.readthedocs.io/en/latest/
