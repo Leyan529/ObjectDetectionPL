@@ -18,15 +18,9 @@ def training_step(self, batch, batch_idx):
     out = self.forward(x)
     result_dict = self.criterion(out, y) 
 
-    values = {}
-    map_key = ""
-    for key, val in result_dict.items():
-        if key == "loss": map_key = "Loss"
-        else: map_key = key        
-        values['%s/Train'%(map_key)] = val
-        self.logger.experiment.add_scalars("Loss/%s"%(map_key), {"Train":val}, self.global_step)
-        
-    self.log_dict({"Loss/Train":result_dict["loss"]}, logger=True, on_epoch=False)
+    for key, val in result_dict.items():    
+        if key == "loss": key = "total"
+        self.logger.experiment.add_scalars("Loss/%s"%(key), {"Train":val}, self.global_step)        
     
     return result_dict
 
@@ -38,11 +32,6 @@ def training_epoch_end(self, outputs): # 在Validation的一個Epoch結束後，
     for key in keys:
         avg_tensor = torch.stack([x[key] for x in outputs]).mean()
         self.logger.experiment.add_scalars("Epoch/%s"%(key), {"Train":avg_tensor}, self.current_epoch)
-
-    # opt = self.optimizers()
-    # self.logger.experiment.add_scalar("epoch/LR",
-    #                                 get_lr(opt),
-    #                                 self.current_epoch)
 
     if(self.current_epoch==1):    
         self.logger.experiment.add_graph(self, self.sampleImg)
@@ -56,14 +45,7 @@ def validation_step(self, batch, batch_idx):
     out = self.forward(x)
     result_dict = self.criterion(out, y) 
 
-    map_key = ""
-    for key, val in result_dict.items():
-        if key == "loss": map_key = "Loss"
-        else: map_key = key        
-        # values['%s/Val'%(map_key)] = val
-        self.logger.experiment.add_scalars("Loss/%s"%(map_key), {"Val":val}, self.global_step)
-
-    self.log_dict({"Loss/Val":result_dict["loss"]}, logger=True, on_epoch=True)
+    self.log_dict({"val_loss":result_dict["loss"]}, logger=True, on_epoch=True)
     
     return result_dict
             
@@ -74,30 +56,8 @@ def validation_epoch_end(self, outputs): # 在Validation的一個Epoch結束後�
     for key in keys:
         avg_tensor = torch.stack([x[key] for x in outputs]).mean()
         self.logger.experiment.add_scalars("Epoch/%s"%(key), {"Val":avg_tensor}, self.current_epoch)
-
-
-    # avg_loss = torch.stack([x['loss'] for x in outputs]).mean()
-    # avg_Val_Acc, avg_Val_Acc_class, avg_Val_mIoU, avg_Val_FWIoU = self.generate_score()
-    # self.confusion_matrix = np.zeros((self.num_classes,) * 2)
-
-    # self.logger.experiment.add_scalars("Loss/Epoch", {"Val":avg_loss}, self.current_epoch)
-    # self.logger.experiment.add_scalars("Accuracy/Acc_normal", {"Val":avg_Val_Acc}, self.current_epoch)  
-    # self.logger.experiment.add_scalars("Accuracy/Acc_class", {"Val":avg_Val_Acc_class}, self.current_epoch)  
-    # self.logger.experiment.add_scalars("Accuracy/mIoU", {"Val":avg_Val_mIoU}, self.current_epoch)  
-    # self.logger.experiment.add_scalars("Accuracy/FWIoU", {"Val":avg_Val_FWIoU}, self.current_epoch)  
-
-
-    # orign_imgs = torch.stack([x['orign_img'] for x in outputs[:4]])
-    # self.logger.experiment.add_image("validation_%s/orign_img" %(self.current_epoch),
-    #                                     orign_imgs,
-    #                                     self.current_epoch,
-    #                                     dataformats="NHWC")
-
-    # pred_imgs = torch.stack([x['pred_img'] for x in outputs[:4]])
-    # self.logger.experiment.add_image("validation_%s/pred_img" %(self.current_epoch),
-    #                                     pred_imgs,
-    #                                     self.current_epoch,
-    #                                     dataformats="NHWC")
+        if key == "loss": key = "total"
+        self.logger.experiment.add_scalars("Loss/%s"%(key), {"Val":avg_tensor}, self.global_step)
 
     self.write_Best_model_path()  
 

@@ -174,7 +174,7 @@ class SSDLoss(nn.Module):
         localization_loss = localization_loss / new_batch_size
         classification_loss = classification_loss / new_batch_size
         total_loss = localization_loss + classification_loss
-        return {"loss":total_loss, "Localization_loss":localization_loss, "Classification_loss":classification_loss}
+        return {"loss":total_loss, "Localization":localization_loss, "Classification":classification_loss}
 
 class RetinaNetLoss(nn.Module):
     def __init__(self, iou_boxes, num_classes=20, img_size = 600):
@@ -331,7 +331,7 @@ class RetinaNetLoss(nn.Module):
         num_pos = max(1.0, num_pos.item())
 
         loss = (loc_loss+cls_loss)/num_pos
-        return {"loss":loss, "Localization_loss":loc_loss/num_pos, "Classification_loss":cls_loss/num_pos}
+        return {"loss":loss, "Localization":loc_loss/num_pos, "Classification":cls_loss/num_pos}
         # return loss, loc_loss/num_pos, cls_loss/num_pos
 
 class RegionLoss_v4(nn.Module):
@@ -487,12 +487,12 @@ class MultiScaleRegionLoss_v4(RegionLoss_v4):
 
         metrics = {
             "loss": self.loss_tot,
-            "Localization_loss": self.loss_coord,
-            "Size_loss": self.loss_size,
-            "Conf_loss": self.loss_conf,
-            "Classification_loss": self.loss_cls,
-            "Conf_obj_loss": self.loss_conf_obj,
-            "Conf_noobj_loss": self.loss_conf_noobj        
+            "Localization": self.loss_coord,
+            "Size": self.loss_size,
+            "Conf": self.loss_conf,
+            "Classification": self.loss_cls,
+            "Conf_obj": self.loss_conf_obj,
+            "Conf_noobj": self.loss_conf_noobj        
         }
         return metrics
 
@@ -647,12 +647,12 @@ class MultiScaleRegionLoss_v3(RegionLoss_v3):
 
         metrics = {
             "loss": self.loss_tot,
-            "Localization_loss": self.loss_coord,
-            "Size_loss": self.loss_size,
-            "Conf_loss": self.loss_conf,
-            "Classification_loss": self.loss_cls,
-            "Conf_obj_loss": self.loss_conf_obj,
-            "Conf_noobj_loss": self.loss_conf_noobj        
+            "Localization": self.loss_coord,
+            "Size": self.loss_size,
+            "Conf": self.loss_conf,
+            "Classification": self.loss_cls,
+            "Conf_obj": self.loss_conf_obj,
+            "Conf_noobj": self.loss_conf_noobj        
         }
         return metrics
 
@@ -757,12 +757,12 @@ class RegionLoss_v2(nn.Module):
 
         metrics = {
             "loss": total_loss,
-            "Localization_loss": (loss_x + loss_y),
-            "Size_loss": wh_loss,
-            "Conf_loss": loss_conf,
-            "Classification_loss": loss_cls,
-            "Conf_obj_loss": loss_conf_obj,
-            "Conf_noobj_loss": loss_conf_noobj        
+            "Localization": (loss_x + loss_y),
+            "Size": wh_loss,
+            "Conf": loss_conf,
+            "Classification": loss_cls,
+            "Conf_obj": loss_conf_obj,
+            "Conf_noobj": loss_conf_noobj        
         }
         return metrics
 
