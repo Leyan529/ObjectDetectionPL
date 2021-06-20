@@ -45,21 +45,21 @@ class RetinaNet(pl.LightningModule):
     num_anchors = 9
     img_size = 600
     colors = pickle.load(open("dataset//pallete", "rb")) 
-    def __init__(self, classes, data_name):
+    def __init__(self, classes, args):
         super(RetinaNet, self).__init__()       
         self.classes = classes
         self.num_classes = len(self.classes)
+        self.args = args 
         self.__build_model()
         self.__build_func(RetinaNet)   
-        self.sample = (1, 3, 600, 600)
+        self.sample = (1, 3, self.img_size, self.img_size)
         self.sampleImg=torch.rand(self.sample).cuda()
         input_size = torch.Tensor([self.img_size, self.img_size])
         self.iou_boxes = get_anchor_boxes(input_size).cuda()    
-        self.criterion = configure_loss('RetinaNet', self.iou_boxes, None, None, self.num_classes, self.img_size)
+        self.criterion = configure_loss(args, self.iou_boxes, None, None, self.num_classes, self.img_size)
 
         self.checkname = self.backbone
-        self.data_name = data_name
-        self.dir = os.path.join("log_dir", self.data_name ,self.checkname) 
+        self.dir = os.path.join("log_dir", self.args.data_module ,self.checkname)
         
     def __build_model(self):
         fpn=50

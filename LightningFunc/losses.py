@@ -2,32 +2,73 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
-# from LightningFunc.utils.YoloV4Utils import build_targets
-# from LightningFunc.utils.YoloV3Utils import build_targets
-# from LightningFunc.utils.YoloV2Utils import build_targets
 from LightningFunc.accuracy import build_targets
 from LightningFunc.accuracy import bbox_iou, iou
 import numpy as np
 
-def configure_loss(mode, iou_boxes, anchors, anch_masks, num_classes, img_size):
-    if mode == 'RetinaNet':
-        return RetinaNetLoss(iou_boxes, num_classes, img_size)
-    if mode == 'SSD':
-        return SSDLoss(iou_boxes, num_classes, img_size)
-    elif mode == 'YOLOv4':
-        return MultiScaleRegionLoss_v4(anchors, anch_masks, num_classes, img_size)
-    elif mode == 'YOLOv3':
-        return MultiScaleRegionLoss_v3(anchors, num_classes, img_size)
-    elif mode == 'YOLOv2':
-        return RegionLoss_v2(anchors, num_classes, img_size)
+def configure_loss(args, iou_boxes, anchors, anch_masks, num_classes, img_size):
+
+    # cls_criterion
+    if args.cls_criterion == "focal_loss": cls_criterion = focal_loss
+    elif args.cls_criterion == "ce_loss": cls_criterion = nn.CrossEntropyLoss
+    elif args.cls_criterion == "bce_loss": cls_criterion = nn.BCELoss 
+    
+    # conf_criterion
+    if args.conf_criterion == "bce_loss": conf_criterion = nn.BCELoss
+   
+    # coord_criterion
+    if args.coord_criterion == "mse_loss": coord_criterion = nn.MSELoss
+    elif args.coord_criterion == "smooth_l1_loss": coord_criterion = nn.SmoothL1Loss
+
+    if args.model_name == 'RetinaNet':
+        # # only focal
+        # cls_criterion = focal_loss 
+
+        # # coord_criterion = nn.SmoothL1Loss
+        # coord_criterion = nn.MSELoss
+        return RetinaNetLoss(iou_boxes, cls_criterion, coord_criterion, num_classes, img_size)
+    if args.model_name == 'SSD':
+        # # only focal or CrossEntropyLoss
+        # cls_criterion = focal_loss 
+        # cls_criterion = nn.CrossEntropyLoss
+
+        # # coord_criterion = nn.SmoothL1Loss
+        # coord_criterion = nn.MSELoss
+        return SSDLoss(iou_boxes, cls_criterion, coord_criterion, num_classes, img_size)
+    elif args.model_name == 'YOLOv4':
+        # cls_criterion = nn.BCELoss         
+        # conf_criterion = nn.BCELoss # cls, conf only BCE
+
+        # # coord_criterion = nn.SmoothL1Loss
+        # coord_criterion = nn.MSELoss
+        return MultiScaleRegionLoss_v4(anchors, anch_masks, cls_criterion, coord_criterion, conf_criterion, num_classes, img_size)
+    elif args.model_name == 'YOLOv3':
+        # cls_criterion = nn.BCELoss         
+        # conf_criterion = nn.BCELoss # cls, conf only BCE
+
+        # # coord_criterion = nn.SmoothL1Loss
+        # coord_criterion = nn.MSELoss
+        return MultiScaleRegionLoss_v3(anchors, cls_criterion, coord_criterion, conf_criterion, num_classes, img_size)
+    elif args.model_name == 'YOLOv2':
+        # cls_criterion = nn.BCELoss         
+        # conf_criterion = nn.BCELoss # cls, conf only BCE
+
+        # # coord_criterion = nn.SmoothL1Loss
+        # coord_criterion = nn.MSELoss
+        return RegionLoss_v2(anchors, cls_criterion, coord_criterion, conf_criterion, num_classes, img_size)
 
 class SSDLoss(nn.Module):
-    def __init__(self, iou_boxes, num_classes, img_size):
+    def __init__(self, iou_boxes, cls_criterion, coord_criterion, num_classes, img_size):
         super(SSDLoss, self).__init__()
         self.num_classes = num_classes
         self.img_size = img_size
         self.default_boxes = iou_boxes  
-        # SmoothL1Loss + CrossEntropyLoss
+        if cls_criterion == focal_loss:
+            self.cls_criterion = cls_criterion(self.num_classes, reduction='none')
+        else:
+            self.cls_criterion = cls_criterion(reduction='none') 
+
+        self.coord_criterion = coord_criterion(reduction='none')
 
     def center_to_points(self, center_tens):
         
@@ -107,8 +148,7 @@ class SSDLoss(nn.Module):
 
             true_offsets = self.compute_offsets(default_boxes, annotations_boxes, box_with_annotation_idx)
 
-            regression_loss_criterion = nn.SmoothL1Loss(reduction='none')
-            regression_loss = regression_loss_criterion(predicted_offsets[matched_box_idxs], true_offsets[matched_box_idxs])
+            regression_loss = self.coord_criterion(predicted_offsets[matched_box_idxs], true_offsets[matched_box_idxs])
 
             true_classifications = torch.zeros(predicted_classes.size(0), dtype=torch.long).to(predicted_classes.device)
             true_classifications[matched_box_idxs] = annotations_classes[box_with_annotation_idx[matched_box_idxs]]
@@ -122,8 +162,7 @@ class SSDLoss(nn.Module):
 
             true_classifications = torch.zeros(predicted_classes.size(0), dtype=torch.long).to(predicted_classes.device)
                 
-        classifications_loss_criterion = nn.CrossEntropyLoss(reduction='none')
-        classifications_loss_total = classifications_loss_criterion(predicted_classes, true_classifications)
+        classifications_loss_total = self.cls_criterion(predicted_classes, true_classifications)
 
         positive_classifications = classifications_loss_total[matched_box_idxs]
         negative_classifications = classifications_loss_total[non_matched_idxs]
@@ -176,27 +215,13 @@ class SSDLoss(nn.Module):
         total_loss = localization_loss + classification_loss
         return {"loss":total_loss, "Localization":localization_loss, "Classification":classification_loss}
 
-class RetinaNetLoss(nn.Module):
-    def __init__(self, iou_boxes, num_classes=20, img_size = 600):
-        super(RetinaNetLoss, self).__init__()
+class focal_loss(nn.Module):
+    def __init__(self, num_classes, reduction='sum'):
+        super(focal_loss, self).__init__()
         self.num_classes = num_classes
-        self.img_size = img_size
-        self.iou_boxes = iou_boxes
-        # smooth_l1_loss + focal
+        self.reduction = reduction
 
-    def _one_hot_embeding(self, labels):
-        """Embeding labels to one-hot form.
-        Args:
-            labels(LongTensor): class labels
-            num_classes(int): number of classes
-        Returns:
-            encoded labels, sized[N, #classes]
-        """
-
-        y = torch.eye(self.num_classes+1)  # [D, D]
-        return y[labels]  # [N, D]
-
-    def focal_loss(self, x, y):
+    def forward(self, x, y): 
         """Focal loss
         Args:
             x(tensor): size [N, D]
@@ -208,7 +233,10 @@ class RetinaNetLoss(nn.Module):
         alpha = 0.25
         gamma = 2
 
-        t = self._one_hot_embeding(y.data.cpu())  # [N,21]
+        """Embeding labels to one-hot form."""
+        encoded = torch.eye(self.num_classes+1)  # [D, D]
+        t = encoded[y.data.cpu().type(torch.int64)]  # [N, D]
+
         t = t[:, 1:]  # exclude background
         t = Variable(t).cuda()  # [N,20]
 
@@ -216,8 +244,19 @@ class RetinaNetLoss(nn.Module):
         logit = logit.clamp(1e-7, 1.-1e-7)
         conf_loss_tmp = -1 * t.float() * torch.log(logit)
         conf_loss_tmp = alpha * conf_loss_tmp * (1-logit)**gamma
-        conf_loss = conf_loss_tmp.sum()
-        return conf_loss
+        if self.reduction=='sum':
+            return conf_loss_tmp.sum()
+        elif self.reduction=='none':
+            return conf_loss_tmp
+
+class RetinaNetLoss(nn.Module):
+    def __init__(self, iou_boxes, cls_criterion, coord_criterion, num_classes=20, img_size = 600):
+        super(RetinaNetLoss, self).__init__()
+        self.num_classes = num_classes
+        self.img_size = img_size
+        self.iou_boxes = iou_boxes
+        self.cls_criterion = cls_criterion(self.num_classes, reduction='sum') # only focal
+        self.coord_criterion = coord_criterion(reduction='sum')
 
     def change_box_order(self, boxes, order):
         '''Change box order between (xmin,ymin,xmax,ymax) and (xcenter,ycenter,width,height).
@@ -278,9 +317,9 @@ class RetinaNetLoss(nn.Module):
         # split outputs and targets
         ################################################################
         loc_preds, cls_preds = outputs        
-        loc_target_bsz, cls_target_bsz = [], []
+        loc_target_batch_size, cls_target_batch_size = [], []
         # rm_bid = []
-        # orign_bsz = loc_preds.shape[0]
+        # orign_batch_size = loc_preds.shape[0]
         """"""
         for bid in range(len(loc_preds)):
             # boxes = change_box_order(boxes, 'xyxy2xywh') # already in xywh format
@@ -301,33 +340,33 @@ class RetinaNetLoss(nn.Module):
             cls_targets[max_ious<0.5] = 0
             ignore = (max_ious>0.4) & (max_ious<0.5)  # ignore ious between [0.4,0.5]
             cls_targets[ignore] = -1  # for now just mark ignored to -1
-            loc_target_bsz.append(loc_targets)
-            cls_target_bsz.append(cls_targets)
+            loc_target_batch_size.append(loc_targets)
+            cls_target_batch_size.append(cls_targets)
         """"""
-        loc_target_bsz, cls_target_bsz = torch.stack(loc_target_bsz), torch.stack(cls_target_bsz)
-        loc_targets, cls_targets = loc_target_bsz, cls_target_bsz
+        loc_target_batch_size, cls_target_batch_size = torch.stack(loc_target_batch_size), torch.stack(cls_target_batch_size)
+        loc_targets, cls_targets = loc_target_batch_size, cls_target_batch_size
         ################################################################
 
         batch_size, num_boxes = cls_targets.size()
         pos = cls_targets > 0  # [N,#anchors]
         num_pos = pos.data.long().sum()
 
-        # loc_preds = loc_preds[list([x for x in range(orign_bsz) if x not in rm_bid])]
-        # cls_preds = cls_preds[list([x for x in range(orign_bsz) if x not in rm_bid])]
+        # loc_preds = loc_preds[list([x for x in range(orign_batch_size) if x not in rm_bid])]
+        # cls_preds = cls_preds[list([x for x in range(orign_batch_size) if x not in rm_bid])]
         ################################################################
         # loc_loss = SmoothL1Loss(pos_loc_preds, pos_loc_targets)
         ################################################################
         mask = pos.unsqueeze(2).expand_as(loc_preds)       # [N,#anchors,4]
         masked_loc_preds = loc_preds[mask].view(-1,4)      # [#pos,4]
         masked_loc_targets = loc_targets[mask].view(-1,4)  # [#pos,4]
-        loc_loss = F.smooth_l1_loss(masked_loc_preds, masked_loc_targets, size_average=False)        
+        loc_loss = self.coord_criterion(masked_loc_preds, masked_loc_targets)  
         ################################################################
         # cls_loss = FocalLoss(loc_preds, loc_targets)
         ################################################################
         pos_neg = cls_targets > -1  # exclude ignored anchors
         mask = pos_neg.unsqueeze(2).expand_as(cls_preds)
         masked_cls_preds = cls_preds[mask].view(-1,self.num_classes)
-        cls_loss = self.focal_loss(masked_cls_preds, cls_targets[pos_neg])
+        cls_loss = self.cls_criterion(masked_cls_preds.cuda(), cls_targets[pos_neg].cuda())
         num_pos = max(1.0, num_pos.item())
 
         loss = (loc_loss+cls_loss)/num_pos
@@ -337,22 +376,21 @@ class RetinaNetLoss(nn.Module):
 class RegionLoss_v4(nn.Module):
     """Detection layer"""
 
-    def __init__(self, anchors, num_classes, img_dim=416):
-        # super(RegionLoss, self).__init__()
+    def __init__(self, anchors, cls_criterion, coord_criterion, conf_criterion, num_classes, img_dim=416):
         super().__init__()
         self.anchors = anchors
         self.num_anchors = len(anchors)
         self.num_classes = num_classes
         self.ignore_thres = 0.5
-        self.mse_loss = nn.MSELoss()
-        self.bce_loss = nn.BCELoss()
+        self.coord_criterion = coord_criterion()
+        self.cls_criterion = cls_criterion()         
+        self.conf_criterion = conf_criterion()
         self.obj_scale = 1
         self.noobj_scale = 100
         self.metrics = {}
         self.img_dim = img_dim
         self.grid_size = 0  # grid size
         self.build_targets = build_targets
-        # bce_loss + mse_loss
 
     def compute_grid_offsets(self, grid_size, cuda=True):
         self.grid_size = grid_size
@@ -417,19 +455,20 @@ class RegionLoss_v4(nn.Module):
         noobj_mask = noobj_mask.bool()
 
         # Loss : Mask outputs to ignore non-existing objects (except with conf. loss)
-        loss_x = self.mse_loss(x[obj_mask], tx[obj_mask])
-        loss_y = self.mse_loss(y[obj_mask], ty[obj_mask])
-        loss_w = self.mse_loss(w[obj_mask], tw[obj_mask])
-        loss_h = self.mse_loss(h[obj_mask], th[obj_mask])
-        loss_conf_obj = self.bce_loss(pred_conf[obj_mask], tconf[obj_mask])
-        loss_conf_noobj = self.bce_loss(pred_conf[noobj_mask], tconf[noobj_mask])
+        loss_x = self.coord_criterion(x[obj_mask], tx[obj_mask])
+        loss_y = self.coord_criterion(y[obj_mask], ty[obj_mask])
+        loss_w = self.coord_criterion(w[obj_mask], tw[obj_mask])
+        loss_h = self.coord_criterion(h[obj_mask], th[obj_mask])
+        loss_conf_obj = self.conf_criterion(pred_conf[obj_mask], tconf[obj_mask])
+        loss_conf_noobj = self.conf_criterion(pred_conf[noobj_mask], tconf[noobj_mask])
         loss_conf = self.obj_scale * loss_conf_obj + self.noobj_scale * loss_conf_noobj
-        loss_cls = self.bce_loss(pred_cls[obj_mask], tcls[obj_mask])
+        loss_cls = self.cls_criterion(pred_cls[obj_mask], tcls[obj_mask])
+        # loss_cls = focal_loss(pred_cls[obj_mask], tcls[obj_mask], self.num_classes)
         total_loss = loss_x + loss_y + loss_w + loss_h + loss_conf + loss_cls
 
         bwbh = pred_boxes[..., 2:4][obj_mask]    
         shape = min(len(bwbh), len(targets))        
-        wh_loss = self.mse_loss(
+        wh_loss = self.coord_criterion(
             torch.sqrt(torch.abs(bwbh) + 1e-32)[:shape],
             torch.sqrt(torch.abs(targets[..., 3:5]) + 1e-32)[:shape],
         )
@@ -437,11 +476,10 @@ class RegionLoss_v4(nn.Module):
         return total_loss, (loss_x + loss_y), wh_loss, loss_conf, loss_cls, loss_conf_obj, loss_conf_noobj
         
 class MultiScaleRegionLoss_v4(RegionLoss_v4):
-    def __init__(self, anchors, anch_masks, num_classes, img_dim = 416, **kwargs):
-        super().__init__(anchors, num_classes, img_dim, **kwargs)
+    def __init__(self, anchors, anch_masks, cls_criterion, coord_criterion, conf_criterion, num_classes, img_dim = 416, **kwargs):
+        super().__init__(anchors, cls_criterion, coord_criterion, conf_criterion, num_classes, img_dim, **kwargs)
         self._anchors = anchors
         self._anch_masks = anch_masks
-        # bce_loss + mse_loss
 
     def forward(self, output, target, seen=None):
         device = output[0].device
@@ -499,15 +537,16 @@ class MultiScaleRegionLoss_v4(RegionLoss_v4):
 class RegionLoss_v3(nn.Module):
     """Detection layer"""
 
-    def __init__(self, anchors, num_classes, img_dim=416):
+    def __init__(self, anchors, cls_criterion, coord_criterion, conf_criterion, num_classes, img_dim=416):
         # super(RegionLoss, self).__init__()
         super().__init__()
         self.anchors = anchors
         self.num_anchors = len(anchors)
         self.num_classes = num_classes
         self.ignore_thres = 0.5
-        self.mse_loss = nn.MSELoss()
-        self.bce_loss = nn.BCELoss()
+        self.coord_criterion = coord_criterion()
+        self.cls_criterion = cls_criterion()
+        self.conf_criterion = conf_criterion()
         self.obj_scale = 1
         self.noobj_scale = 100
         self.metrics = {}
@@ -578,19 +617,19 @@ class RegionLoss_v3(nn.Module):
         noobj_mask = noobj_mask.bool()
 
         # Loss : Mask outputs to ignore non-existing objects (except with conf. loss)
-        loss_x = self.mse_loss(x[obj_mask], tx[obj_mask])
-        loss_y = self.mse_loss(y[obj_mask], ty[obj_mask])
-        loss_w = self.mse_loss(w[obj_mask], tw[obj_mask])
-        loss_h = self.mse_loss(h[obj_mask], th[obj_mask])
-        loss_conf_obj = self.bce_loss(pred_conf[obj_mask], tconf[obj_mask])
-        loss_conf_noobj = self.bce_loss(pred_conf[noobj_mask], tconf[noobj_mask])
+        loss_x = self.coord_criterion(x[obj_mask], tx[obj_mask])
+        loss_y = self.coord_criterion(y[obj_mask], ty[obj_mask])
+        loss_w = self.coord_criterion(w[obj_mask], tw[obj_mask])
+        loss_h = self.coord_criterion(h[obj_mask], th[obj_mask])
+        loss_conf_obj = self.conf_criterion(pred_conf[obj_mask], tconf[obj_mask])
+        loss_conf_noobj = self.conf_criterion(pred_conf[noobj_mask], tconf[noobj_mask])
         loss_conf = self.obj_scale * loss_conf_obj + self.noobj_scale * loss_conf_noobj
-        loss_cls = self.bce_loss(pred_cls[obj_mask], tcls[obj_mask])
+        loss_cls = self.cls_criterion(pred_cls[obj_mask], tcls[obj_mask])
         total_loss = loss_x + loss_y + loss_w + loss_h + loss_conf + loss_cls
 
         bwbh = pred_boxes[..., 2:4][obj_mask]    
         shape = min(len(bwbh), len(targets))        
-        wh_loss = self.mse_loss(
+        wh_loss = self.coord_criterion(
             torch.sqrt(torch.abs(bwbh) + 1e-32)[:shape],
             torch.sqrt(torch.abs(targets[..., 3:5]) + 1e-32)[:shape],
         )
@@ -598,8 +637,8 @@ class RegionLoss_v3(nn.Module):
         return total_loss, (loss_x + loss_y), wh_loss, loss_conf, loss_cls, loss_conf_obj, loss_conf_noobj
         
 class MultiScaleRegionLoss_v3(RegionLoss_v3):
-    def __init__(self, anchors, num_classes, img_dim = 416, **kwargs):
-        super().__init__(anchors, num_classes, img_dim, **kwargs)
+    def __init__(self, anchors, cls_criterion, coord_criterion, conf_criterion, num_classes, img_dim = 416, **kwargs):
+        super().__init__(anchors, cls_criterion, coord_criterion, conf_criterion, num_classes, img_dim, **kwargs)
         self._anchors = anchors
         # bce_loss + mse_loss
 
@@ -659,22 +698,22 @@ class MultiScaleRegionLoss_v3(RegionLoss_v3):
 class RegionLoss_v2(nn.Module):
     """Detection layer"""
 
-    def __init__(self, anchors, num_classes, img_dim=416):
+    def __init__(self, anchors, cls_criterion, coord_criterion, conf_criterion, num_classes, img_dim=416):
         # super(RegionLoss, self).__init__()
         super().__init__()
         self.anchors = anchors
         self.num_anchors = len(anchors)
         self.num_classes = num_classes
         self.ignore_thres = 0.5
-        self.mse_loss = nn.MSELoss()
-        self.bce_loss = nn.BCELoss()
+        self.coord_criterion = coord_criterion()
+        self.cls_criterion = cls_criterion()
+        self.conf_criterion = conf_criterion()
         self.obj_scale = 1
         self.noobj_scale = 100
         self.metrics = {}
         self.img_dim = img_dim
         self.grid_size = 0  # grid size
         self.build_targets = build_targets
-        # bce_loss + mse_loss
 
     def compute_grid_offsets(self, grid_size, cuda=True):
         self.grid_size = grid_size
@@ -738,19 +777,19 @@ class RegionLoss_v2(nn.Module):
         noobj_mask = noobj_mask.bool()
 
         # Loss : Mask outputs to ignore non-existing objects (except with conf. loss)
-        loss_x = self.mse_loss(x[obj_mask], tx[obj_mask])
-        loss_y = self.mse_loss(y[obj_mask], ty[obj_mask])
-        loss_w = self.mse_loss(w[obj_mask], tw[obj_mask])
-        loss_h = self.mse_loss(h[obj_mask], th[obj_mask])
-        loss_conf_obj = self.bce_loss(pred_conf[obj_mask], tconf[obj_mask])
-        loss_conf_noobj = self.bce_loss(pred_conf[noobj_mask], tconf[noobj_mask])
+        loss_x = self.coord_criterion(x[obj_mask], tx[obj_mask])
+        loss_y = self.coord_criterion(y[obj_mask], ty[obj_mask])
+        loss_w = self.coord_criterion(w[obj_mask], tw[obj_mask])
+        loss_h = self.coord_criterion(h[obj_mask], th[obj_mask])
+        loss_conf_obj = self.conf_criterion(pred_conf[obj_mask], tconf[obj_mask])
+        loss_conf_noobj = self.conf_criterion(pred_conf[noobj_mask], tconf[noobj_mask])
         loss_conf = self.obj_scale * loss_conf_obj + self.noobj_scale * loss_conf_noobj
-        loss_cls = self.bce_loss(pred_cls[obj_mask], tcls[obj_mask])
+        loss_cls = self.cls_criterion(pred_cls[obj_mask], tcls[obj_mask])
         total_loss = loss_x + loss_y + loss_w + loss_h + loss_conf + loss_cls
 
         bwbh = pred_boxes[..., 2:4][obj_mask]    
         shape = min(len(bwbh), len(targets))        
-        wh_loss = self.mse_loss(
+        wh_loss = self.coord_criterion(
             torch.sqrt(torch.abs(bwbh) + 1e-32)[:shape],
             torch.sqrt(torch.abs(targets[..., 3:5]) + 1e-32)[:shape],
         )

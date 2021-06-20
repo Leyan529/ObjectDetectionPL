@@ -22,21 +22,20 @@ class YOLOv2(pl.LightningModule):
     ignore_thres = 0.5
     colors = pickle.load(open("dataset//pallete", "rb"))   
     anch_masks = None
-    def __init__(self, classes, data_name):
+    def __init__(self, classes, args):
         super().__init__()
         self.classes = classes
         self.num_classes = len(self.classes)        
-
+        self.args = args 
         self.__build_model()
         self.__build_func(YOLOv2)   
-        self.sample = (1, 3, 416, 416)
+        self.sample = (1, 3, self.img_size, self.img_size)
         self.sampleImg=torch.rand(self.sample).cuda()
 
-        self.criterion = configure_loss('YOLOv2', None, self.anchors, None, self.num_classes, self.img_size)
+        self.criterion = configure_loss(args, None, self.anchors, None, self.num_classes, self.img_size)
 
         self.checkname = self.backbone
-        self.data_name = data_name
-        self.dir = os.path.join("log_dir", self.data_name ,self.checkname)
+        self.dir = os.path.join("log_dir", self.args.data_module ,self.checkname)
 
     def __build_model(self):
         
@@ -171,7 +170,7 @@ class YOLOv2(pl.LightningModule):
                 # 507     3*13*13
                 # 2028   3*26*26
                 # 8112   3*52*52
-                # [bsz, 3*(13+6),52*52]
+                # [batch_size, 3*(13+6),52*52]
             predictions_list = []
             for prediction in predictions:
                 num_samples = prediction.size(0)

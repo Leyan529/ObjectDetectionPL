@@ -29,7 +29,7 @@ def read_Best_model_path(self):
         best_model_file = open(best_model_file, 'r', encoding="utf-8")
         best_model_path = best_model_file.readline().strip()
         print("\nLoad best_model_path : %s \n"% best_model_path)
-        self.load_from_checkpoint(checkpoint_path=best_model_path, classes=self.classes, data_name=self.data_name)
+        self.load_from_checkpoint(checkpoint_path=best_model_path, classes=self.classes, args=self.args)
         best_model_file.close()    
     else:
         print("No model can load \n")

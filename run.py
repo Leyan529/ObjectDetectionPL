@@ -1,8 +1,3 @@
-# import os
-# from argparse import ArgumentParser
-
-from unicodedata import name
-
 from pytorch_lightning import Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor, GPUStatsMonitor
@@ -24,30 +19,58 @@ from dataset.Coco import COCOModule
 from dataset.Container import MosquitoModule
 from dataset.BDD100K import BDD100KModule
 
+import yaml
+import argparse
+
+def load_config(args):
+    with open(args.config) as f:
+        config = yaml.load(f, Loader=yaml.FullLoader)
+        for key, value in config.items():
+            if isinstance(value, dict):
+                for inside_key, inside_key_value in value.items():
+                    setattr(args, inside_key, inside_key_value)
+            else:
+                setattr(args, key, value)
+    if args.model_name == "RetinaNet": args.img_size = 600
+    elif args.model_name == "SSD": args.img_size = 300
+    else: args.img_size = 416
+    return args
+
+def load_data(args):
+    dm = None
+    if args.data_module == "AsiaModule": dm = AsiaModule(batch_size= args.batch_size, img_size=args.img_size)
+    elif args.data_module == "VOCModule": dm = VOCModule(batch_size= args.batch_size, img_size=args.img_size)
+    elif args.data_module == "COCOModule": dm = COCOModule(batch_size= args.batch_size, img_size=args.img_size)
+    elif args.data_module == "MosquitoModule": dm = MosquitoModule(batch_size= args.batch_size, img_size=args.img_size)
+    elif args.data_module == "WiderPersonModule": dm = WiderPersonModule(batch_size= args.batch_size, img_size=args.img_size)
+    elif args.data_module == "BDD100KModule": dm = BDD100KModule(batch_size= args.batch_size, img_size=args.img_size)
+    dm.setup(args.stage)
+    return dm
+
+def load_model(args, dm):
+    model = None
+    if args.model_name == "RetinaNet": model = RetinaNet(dm.get_class(), args)
+    elif args.model_name == "SSD": model = SSD(dm.get_class(), args)
+    elif args.model_name == "YOLOv2": model = YOLOv2(dm.get_class(), args)
+    elif args.model_name == "YOLOv3": model = YOLOv3(dm.get_class(), args)
+    elif args.model_name == "YOLOv4": model = YOLOv4(dm.get_class(), args)
+   
+
+    return model
+
 if __name__ == '__main__':
-    # model = RetinaNet
-    # model = SSD 
-    model = YOLOv4
-    # model = YOLOv3
-    # model = YOLOv2
+    # Parse command line arguments.
+    parser = argparse.ArgumentParser()
+    add_arg = parser.add_argument
+    add_arg('config', nargs='?', default='configs/config.yaml',
+            help='YAML configuration file')
+    args = parser.parse_args()
 
-    # dm = AsiaModule(bsz=2, img_size=model.img_size)
-    # dm = VOCModule(bsz=2, img_size=model.img_size)
-    # dm = COCOModule(bsz=2, img_size=model.img_size)
-    # dm = MosquitoModule(bsz=2, img_size=model.img_size)
-    # dm = WiderPersonModule(bsz=2, img_size=model.img_size)
-    dm = BDD100KModule(bsz=2, img_size=model.img_size)
-    dm.setup('fit')  
-
+    # Load configuration
+    config = load_config(args)
+    dm = load_data(args)
+    model = load_model(args, dm)
     
-    model = model(dm.get_class(), dm.name)
-    # # model = SSD(dm.get_classes(), dm.name)
-    # # model = YOLOV2(dm.get_classes(), dm.name)
-    # # model = YOLOV3(dm.get_classes(), dm.name)
-    # # model = YOLOV4(dm.get_classes(), dm.name)
-    # # model = YOLOV5(dm.get_classes(), dm.name)
-
-    setattr(model, "learning_rate", 1e-3)
     model.read_Best_model_path()
 
     root_dir = os.path.join('log_dir',dm.name)
@@ -74,19 +97,12 @@ if __name__ == '__main__':
     lr_monitor = LearningRateMonitor(logging_interval="epoch")
     gpu_stats = GPUStatsMonitor() 
 
-    trainer = Trainer(max_epochs = 10, gpus=-1, auto_select_gpus=True,
-                    logger=logger, num_sanity_val_steps=0, 
-                    # weights_summary='full', 
-                    auto_scale_batch_size = 'power', # only open when find batch_num
-                    auto_lr_find=True,
-                    accumulate_grad_batches=8,  # random error with (could not broadcast input array from shape)
-                    callbacks=[checkpoint_callback, early_stop_callback, lr_monitor, gpu_stats],
-                    limit_train_batches=5,
-                    limit_val_batches=5,
-                    limit_test_batches = 5
-                    )
+    trainer = Trainer.from_argparse_args(config, 
+                                        callbacks=[checkpoint_callback, early_stop_callback, lr_monitor, gpu_stats],
+                                        logger=logger)
 
-    # trainer.tune(model, datamodule=dm)                    
+    if args.tune:
+        trainer.tune(model, datamodule=dm)                    
     trainer.fit(model, datamodule=dm)
 
     dm.setup('test') 

@@ -197,9 +197,9 @@ class DatasetFromSubset(Dataset):
         return len(self.subset)
 
 class AsiaModule(pl.LightningDataModule):
-    def __init__(self, bsz, img_size=416):
+    def __init__(self, batch_size, img_size=416):
         super().__init__()
-        self.batch_size = bsz
+        self.batch_size = batch_size
         self.img_size = img_size
         self.name = "AssiaTraffic"
         self.classes = ['pedestrian', 'vehicle', 'scooter', 'bicycle']

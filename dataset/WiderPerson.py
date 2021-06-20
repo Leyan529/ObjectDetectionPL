@@ -194,9 +194,9 @@ class DatasetFromSubset(Dataset):
         return len(self.subset)
 
 class WiderPersonModule(pl.LightningDataModule):
-    def __init__(self, bsz, img_size=416):
+    def __init__(self, batch_size, img_size=416):
         super().__init__()
-        self.batch_size = bsz
+        self.batch_size = batch_size
         self.img_size = img_size
         self.name = "WiderPerson"
         self.classes = ['pedestrians', 'riders', 'partially-visible persons', 'ignore regions', 'crowd'] 
