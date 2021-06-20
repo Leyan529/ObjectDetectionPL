@@ -12,7 +12,8 @@ I organizize the object detection algorithms proposed in recent years, and focus
 - [x] GPUStats Monitor
 - [x] Early stop callback
 - [x] Read Best model path
-- [ ] Lightning with Argument Parser
+- [x] Lightning with Argument Parser
+- [x] Yaml custom config
 - [ ] Yolo v5 model
 
 ## Datasets:
