@@ -10,7 +10,7 @@ from model.SSD import SSD
 from model.YOLOV2 import YOLOv2
 from model.YOLOV3 import YOLOv3
 from model.YOLOV4 import YOLOv4
-# from model.YOLOV5 import YOLOV5
+from model.YOLOV5 import YOLOv5
 
 from dataset.AsiaTraffic import AsiaModule
 from dataset.Pascal import VOCModule
@@ -21,6 +21,7 @@ from dataset.BDD100K import BDD100KModule
 
 import yaml
 import argparse
+import torch
 
 def load_config(args):
     with open(args.config) as f:
@@ -33,17 +34,18 @@ def load_config(args):
                 setattr(args, key, value)
     if args.model_name == "RetinaNet": args.img_size = 600
     elif args.model_name == "SSD": args.img_size = 300
+    elif args.model_name == "YOLOv5": args.img_size = 640
     else: args.img_size = 416
     return args
 
 def load_data(args):
     dm = None
-    if args.data_module == "AsiaModule": dm = AsiaModule(batch_size= args.batch_size, img_size=args.img_size)
-    elif args.data_module == "VOCModule": dm = VOCModule(batch_size= args.batch_size, img_size=args.img_size)
-    elif args.data_module == "COCOModule": dm = COCOModule(batch_size= args.batch_size, img_size=args.img_size)
-    elif args.data_module == "MosquitoModule": dm = MosquitoModule(batch_size= args.batch_size, img_size=args.img_size)
-    elif args.data_module == "WiderPersonModule": dm = WiderPersonModule(batch_size= args.batch_size, img_size=args.img_size)
-    elif args.data_module == "BDD100KModule": dm = BDD100KModule(batch_size= args.batch_size, img_size=args.img_size)
+    if args.data_module == "Asia": dm = AsiaModule(batch_size= args.batch_size, img_size=args.img_size)
+    elif args.data_module == "VOC": dm = VOCModule(batch_size= args.batch_size, img_size=args.img_size)
+    elif args.data_module == "COCO": dm = COCOModule(batch_size= args.batch_size, img_size=args.img_size)
+    elif args.data_module == "Mosquito": dm = MosquitoModule(batch_size= args.batch_size, img_size=args.img_size)
+    elif args.data_module == "WiderPerson": dm = WiderPersonModule(batch_size= args.batch_size, img_size=args.img_size)
+    elif args.data_module == "BDD100K": dm = BDD100KModule(batch_size= args.batch_size, img_size=args.img_size)
     dm.setup(args.stage)
     return dm
 
@@ -54,9 +56,16 @@ def load_model(args, dm):
     elif args.model_name == "YOLOv2": model = YOLOv2(dm.get_class(), args)
     elif args.model_name == "YOLOv3": model = YOLOv3(dm.get_class(), args)
     elif args.model_name == "YOLOv4": model = YOLOv4(dm.get_class(), args)
-   
+    elif args.model_name == "YOLOv5": model = YOLOv5(dm.get_class(), args)
 
     return model
+
+# if __name__ == '__mainq__':
+#     # anchors = [[10, 13, 16, 30, 33, 23], [30, 61, 62, 45, 59, 119], [116, 90, 156, 198, 373, 326]]
+#     net = YOLOv5(80, None).cuda()
+#     net.training = False
+#     sample = torch.rand((1, 3, 416, 416)).cuda()
+#     output = net(sample)    
 
 if __name__ == '__main__':
     # Parse command line arguments.

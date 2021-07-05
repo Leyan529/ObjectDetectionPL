@@ -62,6 +62,7 @@ def validation_epoch_end(self, outputs): # 在Validation的一個Epoch結束後�
     self.write_Best_model_path()  
 
 def test_step(self, batch, batch_idx): #定義 Test 階段
+    self.inference = True
     x, y = batch
     out = self.forward(x)
 
@@ -89,7 +90,7 @@ def test_step(self, batch, batch_idx): #定義 Test 階段
         # cv2.imshow('win', vis)
         # cv2.waitKey()
     
-    if self.checkname in ["RetinaNet", "SSD"]:
+    if self.checkname in ["RetinaNet", "SSD", "YOLOv5"]:
         # List of tuples (TP, confs, pred)
         sample_metric = get_batch_statistics(suppress_output, y.cuda(), iou_threshold=0.5) 
         label = y[:, 1].tolist()
@@ -101,7 +102,7 @@ def test_step(self, batch, batch_idx): #定義 Test 階段
 def test_epoch_end(self, outputs): 
     vis_list = []
     sample_metrics = []  # List of tuples (TP, confs, pred)
-    if self.checkname in ["RetinaNet", "SSD"]:
+    if self.checkname in ["RetinaNet", "SSD", "YOLOv5"]:
         labels = []    
         for x in outputs:
             sample_metrics += x['sample_metric']

@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
-from LightningFunc.accuracy import build_targets
-from LightningFunc.accuracy import bbox_iou, iou
+from LightningFunc.accuracy import build_targets, build_targets_v5
+from LightningFunc.accuracy import bbox_iou, iou, bbox_iou_v5
 import numpy as np
 
 def configure_loss(args, iou_boxes, anchors, anch_masks, num_classes, img_size):
@@ -12,50 +12,149 @@ def configure_loss(args, iou_boxes, anchors, anch_masks, num_classes, img_size):
     if args.cls_criterion == "focal_loss": cls_criterion = focal_loss
     elif args.cls_criterion == "ce_loss": cls_criterion = nn.CrossEntropyLoss
     elif args.cls_criterion == "bce_loss": cls_criterion = nn.BCELoss 
-    
-    # conf_criterion
-    if args.conf_criterion == "bce_loss": conf_criterion = nn.BCELoss
    
     # coord_criterion
     if args.coord_criterion == "mse_loss": coord_criterion = nn.MSELoss
     elif args.coord_criterion == "smooth_l1_loss": coord_criterion = nn.SmoothL1Loss
 
-    if args.model_name == 'RetinaNet':
-        # # only focal
-        # cls_criterion = focal_loss 
+    # conf_criterion (yolo only)
+    conf_criterion = nn.BCELoss 
 
-        # # coord_criterion = nn.SmoothL1Loss
-        # coord_criterion = nn.MSELoss
+    if args.model_name == 'RetinaNet':
         return RetinaNetLoss(iou_boxes, cls_criterion, coord_criterion, num_classes, img_size)
     if args.model_name == 'SSD':
-        # # only focal or CrossEntropyLoss
-        # cls_criterion = focal_loss 
-        # cls_criterion = nn.CrossEntropyLoss
-
-        # # coord_criterion = nn.SmoothL1Loss
-        # coord_criterion = nn.MSELoss
         return SSDLoss(iou_boxes, cls_criterion, coord_criterion, num_classes, img_size)
-    elif args.model_name == 'YOLOv4':
-        # cls_criterion = nn.BCELoss         
-        # conf_criterion = nn.BCELoss # cls, conf only BCE
+    elif args.model_name == 'YOLOv5':
+        return MultiScaleRegionLoss_v5(anchors, anch_masks, cls_criterion, coord_criterion, conf_criterion, num_classes, img_size)
 
-        # # coord_criterion = nn.SmoothL1Loss
-        # coord_criterion = nn.MSELoss
+    elif args.model_name == 'YOLOv4':
         return MultiScaleRegionLoss_v4(anchors, anch_masks, cls_criterion, coord_criterion, conf_criterion, num_classes, img_size)
     elif args.model_name == 'YOLOv3':
-        # cls_criterion = nn.BCELoss         
-        # conf_criterion = nn.BCELoss # cls, conf only BCE
-
-        # # coord_criterion = nn.SmoothL1Loss
-        # coord_criterion = nn.MSELoss
         return MultiScaleRegionLoss_v3(anchors, cls_criterion, coord_criterion, conf_criterion, num_classes, img_size)
     elif args.model_name == 'YOLOv2':
-        # cls_criterion = nn.BCELoss         
-        # conf_criterion = nn.BCELoss # cls, conf only BCE
-
-        # # coord_criterion = nn.SmoothL1Loss
-        # coord_criterion = nn.MSELoss
         return RegionLoss_v2(anchors, cls_criterion, coord_criterion, conf_criterion, num_classes, img_size)
+
+class FocalLoss(nn.Module):
+    # Wraps focal loss around existing loss_fcn(), i.e. criteria = FocalLoss(nn.BCEWithLogitsLoss(), gamma=1.5)
+    def __init__(self, loss_fcn, gamma=1.5, alpha=0.25):
+        super(FocalLoss, self).__init__()
+        self.loss_fcn = loss_fcn  # must be nn.BCEWithLogitsLoss()
+        self.gamma = gamma
+        self.alpha = alpha
+        self.reduction = loss_fcn.reduction
+        self.loss_fcn.reduction = 'none'  # required to apply FL to each element
+
+    def forward(self, pred, true):
+        loss = self.loss_fcn(pred, true)
+        # p_t = torch.exp(-loss)
+        # loss *= self.alpha * (1.000001 - p_t) ** self.gamma  # non-zero power for gradient stability
+
+        # TF implementation https://github.com/tensorflow/addons/blob/v0.7.1/tensorflow_addons/losses/focal_loss.py
+        pred_prob = torch.sigmoid(pred)  # prob from logits
+        p_t = true * pred_prob + (1 - true) * (1 - pred_prob)
+        alpha_factor = true * self.alpha + (1 - true) * (1 - self.alpha)
+        modulating_factor = (1.0 - p_t) ** self.gamma
+        loss *= alpha_factor * modulating_factor
+
+        if self.reduction == 'mean':
+            return loss.mean()
+        elif self.reduction == 'sum':
+            return loss.sum()
+        else:  # 'none'
+            return loss
+
+def smooth_BCE(eps=0.1):  # https://github.com/ultralytics/yolov3/issues/238#issuecomment-598028441
+    # return positive, negative label smoothing BCE targets
+    return 1.0 - 0.5 * eps, 0.5 * eps
+
+class MultiScaleRegionLoss_v5(nn.Module):
+    def __init__(self, anchors, anch_masks, cls_criterion, coord_criterion, conf_criterion, num_classes, img_dim = 416, **kwargs):
+        super().__init__()    
+        self.stride = torch.tensor([ 8., 16., 32.]).cuda()  # strides computed during build
+  
+
+        # Define criteria
+        # BCE + FOCAL for cls/coord
+        self.red = 'mean'  # Loss reduction (sum or mean)
+        self.BCEcls = nn.BCEWithLogitsLoss(pos_weight=torch.cuda.FloatTensor([1.0]), reduction=self.red)
+        self.BCEobj = nn.BCEWithLogitsLoss(pos_weight=torch.cuda.FloatTensor([1.0]), reduction=self.red) 
+
+        # class label smoothing https://arxiv.org/pdf/1902.04103.pdf eqn 3
+        label_smoothing = 0.0
+        self.cp, self.cn = smooth_BCE(eps=label_smoothing)
+
+        # focal loss
+        fl_gamma= 1.5  # focal loss gamma (efficientDet default is gamma=1.5)
+        if fl_gamma > 0:
+            self.BCEcls, self.BCEobj = FocalLoss(self.BCEcls, fl_gamma), FocalLoss(self.BCEobj, fl_gamma)
+
+        self.nc = num_classes
+
+        self.nl = len(anchors)  # number of detection layers
+        self.na = len(anchors[0]) // 2  # number of anchors
+        self.anchor_grid = torch.tensor(anchors).float().view(self.nl, 1, -1, 1, 1, 2).cuda()
+        self.anchors = self.anchor_grid.view(self.nl, -1, 2) / self.stride.view(-1, 1, 1)
+
+    def forward(self, output, target, seen=None):
+        ft = torch.cuda.FloatTensor
+        lcls, lbox, lobj = ft([0]), ft([0]), ft([0])
+
+        tcls, tbox, indices, anchors = build_targets_v5(output, target, self.anchors, self.nl, self.na)  # targets
+        # per output
+        nt = 0  # targets
+        for i, pi in enumerate(output):  # layer index, layer predictions
+            b, a, gj, gi = indices[i]  # image, anchor, gridy, gridx
+            tobj = torch.zeros_like(pi[..., 0])  # target obj
+
+            nb = b.shape[0]  # number of targets
+            if nb:
+                nt += nb  # cumulative targets
+                ps = pi[b, a, gj, gi]  # prediction subset corresponding to targets
+
+                # GIoU
+                pxy = ps[:, :2].sigmoid() * 2. - 0.5
+                pwh = (ps[:, 2:4].sigmoid() * 2) ** 2 * anchors[i]
+                pbox = torch.cat((pxy, pwh), 1)  # predicted box
+                giou = bbox_iou_v5(pbox.t(), tbox[i].t(), x1y1x2y2=False, GIoU=True)  # giou(prediction, target)
+                lbox += (1.0 - giou).sum() if self.red == 'sum' else (1.0 - giou).mean()  # giou loss
+
+                # Obj
+                gr = 1.0
+                tobj[b, a, gj, gi] = (1.0 - gr) + gr * giou.detach().clamp(0).type(tobj.dtype)  # giou ratio
+
+                # Class
+                if self.nc > 1:  # cls loss (only if multiple classes)
+                    t = torch.full_like(ps[:, 5:], self.cn)  # targets
+                    t[range(nb), tcls[i]] = self.cp
+                    lcls += self.BCEcls(ps[:, 5:], t)  # BCE
+
+                # Append targets to text file
+                # with open('targets.txt', 'a') as file:
+                #     [file.write('%11.5g ' * 4 % tuple(x) + '\n') for x in torch.cat((txy[i], twh[i]), 1)]
+
+            lobj += self.BCEobj(pi[..., 4], tobj)  # obj loss
+        
+        lbox *= 0.05
+        lobj *= 1.0
+        lcls *= 0.58
+        bs = tobj.shape[0]  # batch size
+        if self.red == 'sum':
+            g = 3.0  # loss gain
+            lobj *= g / bs
+            if nt:
+                lcls *= g / nt / self.nc
+                lbox *= g / nt
+
+        loss = lbox + lobj + lcls
+
+        metrics = {
+            "loss": loss,
+            "Localization": lbox,
+            "Classification": lcls,
+            "Conf_obj": lobj,
+        }
+        return metrics
+
 
 class SSDLoss(nn.Module):
     def __init__(self, iou_boxes, cls_criterion, coord_criterion, num_classes, img_size):

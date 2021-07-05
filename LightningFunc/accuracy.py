@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import cv2
+import math
 
 def iou(tens1, tens2):
     
@@ -35,7 +36,7 @@ def iou(tens1, tens2):
     
     return iou
 
-def bbox_iou(box1, box2, x1y1x2y2=True):
+def bbox_iou(box1, box2, x1y1x2y2=True, GIoU=False, DIoU=False, CIoU=False):
     """
     Returns the IoU of two bounding boxes
     """
@@ -62,8 +63,53 @@ def bbox_iou(box1, box2, x1y1x2y2=True):
     # Union Area
     b1_area = (b1_x2 - b1_x1 + 1) * (b1_y2 - b1_y1 + 1)
     b2_area = (b2_x2 - b2_x1 + 1) * (b2_y2 - b2_y1 + 1)
+    union = (b1_area + b2_area - inter_area + 1e-16)
 
-    iou = inter_area / (b1_area + b2_area - inter_area + 1e-16)
+    iou = inter_area / union
+    return iou
+
+def bbox_iou_v5(box1, box2, x1y1x2y2=True, GIoU=False, DIoU=False, CIoU=False):
+    # Returns the IoU of box1 to box2. box1 is 4, box2 is nx4
+    # box2 = box2.t()
+
+    # Get the coordinates of bounding boxes
+    if x1y1x2y2:  # x1, y1, x2, y2 = box1
+        b1_x1, b1_y1, b1_x2, b1_y2 = box1[0], box1[1], box1[2], box1[3]
+        b2_x1, b2_y1, b2_x2, b2_y2 = box2[0], box2[1], box2[2], box2[3]
+    else:  # transform from xywh to xyxy
+        b1_x1, b1_x2 = box1[0] - box1[2] / 2, box1[0] + box1[2] / 2
+        b1_y1, b1_y2 = box1[1] - box1[3] / 2, box1[1] + box1[3] / 2
+        b2_x1, b2_x2 = box2[0] - box2[2] / 2, box2[0] + box2[2] / 2
+        b2_y1, b2_y2 = box2[1] - box2[3] / 2, box2[1] + box2[3] / 2
+
+    # Intersection area
+    inter = (torch.min(b1_x2, b2_x2) - torch.max(b1_x1, b2_x1)).clamp(0) * \
+            (torch.min(b1_y2, b2_y2) - torch.max(b1_y1, b2_y1)).clamp(0)
+
+    # Union Area
+    w1, h1 = b1_x2 - b1_x1, b1_y2 - b1_y1
+    w2, h2 = b2_x2 - b2_x1, b2_y2 - b2_y1
+    union = (w1 * h1 + 1e-16) + w2 * h2 - inter
+
+    iou = inter / union  # iou
+    if GIoU or DIoU or CIoU:
+        cw = torch.max(b1_x2, b2_x2) - torch.min(b1_x1, b2_x1)  # convex (smallest enclosing box) width
+        ch = torch.max(b1_y2, b2_y2) - torch.min(b1_y1, b2_y1)  # convex height
+        if GIoU:  # Generalized IoU https://arxiv.org/pdf/1902.09630.pdf
+            c_area = cw * ch + 1e-16  # convex area
+            return iou - (c_area - union) / c_area  # GIoU
+        if DIoU or CIoU:  # Distance or Complete IoU https://arxiv.org/abs/1911.08287v1
+            # convex diagonal squared
+            c2 = cw ** 2 + ch ** 2 + 1e-16
+            # centerpoint distance squared
+            rho2 = ((b2_x1 + b2_x2) - (b1_x1 + b1_x2)) ** 2 / 4 + ((b2_y1 + b2_y2) - (b1_y1 + b1_y2)) ** 2 / 4
+            if DIoU:
+                return iou - rho2 / c2  # DIoU
+            elif CIoU:  # https://github.com/Zzh-tju/DIoU-SSD-pytorch/blob/master/utils/box/box_utils.py#L47
+                v = (4 / math.pi ** 2) * torch.pow(torch.atan(w2 / h2) - torch.atan(w1 / h1), 2)
+                with torch.no_grad():
+                    alpha = v / (1 - iou + v)
+                return iou - (rho2 / c2 + v * alpha)  # CIoU
 
     return iou
 
@@ -339,13 +385,16 @@ def get_yolo_statistics(self, output, target):
     batch_metrics = {}
     if type(output) != list: output = [output]
     for i, x in enumerate(output):    
-        if self.anch_masks!= None:
+        if self.anch_masks!= None: # yolo_v4
             anchors = [self.anchors[mask] for mask in self.anch_masks[i]]
+        # elif type(self.anchors[i][0]) == int:
+        #     _anchors = self.anchors[i]
+        #     anchors = [[_anchors[idx*2] , _anchors[idx*2 + 1]] for idx in range(len(_anchors)//2)]
         else:
             if len(self.anchors) == 3:
-                anchors = self.anchors[i]
+                anchors = self.anchors[i] # yolo_v3
             else:
-                anchors = self.anchors
+                anchors = self.anchors # yolo_v2
 
         self.num_anchors = len(anchors)
 
@@ -419,3 +468,54 @@ def get_yolo_statistics(self, output, target):
         batch_metrics[grid_size] = [cls_acc.cpu().data.numpy(), recall50.cpu().data.numpy(), recall75.cpu().data.numpy(), \
                                     precision.cpu().data.numpy(), conf_obj.cpu().data.numpy(), conf_noobj.cpu().data.numpy(), output.cpu()]
     return batch_metrics
+
+def build_targets_v5(p, targets, anchors, nl, na):
+    nt = targets.shape[0]  # number of anchors, targets
+    tcls, tbox, indices, anch = [], [], [], []
+    gain = torch.ones(6, device=targets.device)  # normalized to gridspace gain
+    off = torch.tensor([[1, 0], [0, 1], [-1, 0], [0, -1]], device=targets.device).float()  # overlap offsets
+    at = torch.arange(na).view(na, 1).repeat(1, nt)  # anchor tensor, same as .repeat_interleave(nt)
+    anchor_t= 4.0  # anchor-multiple threshold
+
+    style = 'rect4'
+    for i in range(nl):
+        _anchors = anchors[i]
+        gain[2:] = torch.tensor(p[i].shape)[[3, 2, 3, 2]]  # xyxy gain
+
+        # Match targets to anchors
+        a, t, offsets = [], targets * gain, 0
+        if nt:
+            r = t[None, :, 4:6] / _anchors[:, None]  # wh ratio
+            j = torch.max(r, 1. / r).max(2)[0] < anchor_t  # compare
+            a, t = at[j], t.repeat(na, 1, 1)[j]  # filter
+
+            # overlaps
+            gxy = t[:, 2:4]  # grid xy
+            z = torch.zeros_like(gxy)
+            if style == 'rect2':
+                g = 0.2  # offset
+                j, k = ((gxy % 1. < g) & (gxy > 1.)).T
+                a, t = torch.cat((a, a[j], a[k]), 0), torch.cat((t, t[j], t[k]), 0)
+                offsets = torch.cat((z, z[j] + off[0], z[k] + off[1]), 0) * g
+
+            elif style == 'rect4':
+                g = 0.5  # offset
+                j, k = ((gxy % 1. < g) & (gxy > 1.)).T
+                l, m = ((gxy % 1. > (1 - g)) & (gxy < (gain[[2, 3]] - 1.))).T
+                a, t = torch.cat((a, a[j], a[k], a[l], a[m]), 0), torch.cat((t, t[j], t[k], t[l], t[m]), 0)
+                offsets = torch.cat((z, z[j] + off[0], z[k] + off[1], z[l] + off[2], z[m] + off[3]), 0) * g
+
+        # Define
+        b, c = t[:, :2].long().T  # image, class
+        gxy = t[:, 2:4]  # grid xy
+        gwh = t[:, 4:6]  # grid wh
+        gij = (gxy - offsets).long()
+        gi, gj = gij.T  # grid xy indices
+
+        # Append
+        indices.append((b, a, gj, gi))  # image, anchor, grid indices
+        tbox.append(torch.cat((gxy - gij, gwh), 1))  # box
+        anch.append(_anchors[a])  # anchors
+        tcls.append(c)  # class
+
+    return tcls, tbox, indices, anch

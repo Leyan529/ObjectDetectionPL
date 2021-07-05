@@ -1,32 +1,35 @@
 data:
-    data_module: BDD100KModule
+    data_module: BDD100K
     # n_train: 32768 #50000
     # n_valid: 8192 #10000
     batch_size: 2
     stage: 'fit'
     test: True
     view_mark: False
-    img_size: 300 # [300, 416, 600]
+    img_size: 0 # [300, 416, 600]
 
-model:
-    model_name: YOLOv4 # [RetinaNet, SSD, YOLOv4, YOLOv3, YOLOv2]
-
-
-# RetinaNet_loss:
+# RetinaNet:
+#     model_name: RetinaNet
 #     cls_criterion: focal_loss # RetinaNet only
+#     coord_criterion: mse_loss 
+#     coord_criterion: smooth_l1_loss 
 
-# SSD_loss:
+# SSD:
+#     model_name: SSD
 #     cls_criterion: ce_loss #  ssd only [CrossEntropyLoss, FocalLoss] 
 #     cls_criterion: focal_loss
+#     coord_criterion: mse_loss 
+#     coord_criterion: smooth_l1_loss 
 
-YOLO_loss:
+YOLO:
+    # model_name: YOLOv2    
+    # model_name: YOLOv3  
+    # model_name: YOLOv4  
+    model_name: YOLOv5  
+    type: Yolov5s # [Yolov5s, Yolov5m, Yolov5l, Yolov5x]
     cls_criterion: bce_loss # yolo only
-
-Coord_loss:     # all can switch [mse_loss, smooth_l1_loss]
     coord_criterion: mse_loss 
     coord_criterion: smooth_l1_loss 
-
-conf_criterion: bce_loss # yolo only
 
 optimizer:
     optimizer: Adam # [Adam, Adagrad, RMSprop, SGD]
@@ -63,8 +66,8 @@ fitune:
     auto_scale_batch_size: power
    
 yaml_test:    
-    # max_epochs: 2
-    # n_epochs: 4
-    # limit_train_batches: 5
-    # limit_val_batches: 5
-    # limit_test_batches: 5
+    max_epochs: 2
+    n_epochs: 4
+    limit_train_batches: 5
+    limit_val_batches: 5
+    limit_test_batches: 5
