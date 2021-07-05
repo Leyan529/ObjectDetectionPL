@@ -246,6 +246,7 @@ Download the container images and annotations from [BDD100K](https://bdd-data.be
 - YOLOv2
 - YOLOv3
 - YOLOv4
+- YOLOv5 [Yolov5s, Yolov5m, Yolov5l, Yolov5x]
 
 ## Prerequisites
 * **Windows 10**
