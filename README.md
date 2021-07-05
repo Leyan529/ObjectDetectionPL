@@ -14,7 +14,7 @@ I organizize the object detection algorithms proposed in recent years, and focus
 - [x] Read Best model path
 - [x] Lightning with Argument Parser
 - [x] Yaml custom config
-- [ ] Yolo v5 model
+- [x] Yolo v5 model
 
 ## Datasets:
 
@@ -302,6 +302,7 @@ python run.py --use BDD100KModule --model YOLOV4
 - PyTorch-YOLOv2 : https://github.com/uvipen/Yolo-v2-pytorch/blob/9589413b5dce0476eb9cccc41945cf30cf131b34/src/yolo_net.py
 - PyTorch-YOLOv3 : https://github.com/eavise-kul/lightnet/blob/b54f771a597d23863979d9274eb2ba90c05938e4/lightnet/models/_network_yolo_v3.py
 - PyTorch_YOLOv4 : https://github.com/Tianxiaomo/pytorch-YOLOv4/blob/4ccef0ec8fe984e059378813e33b3740929e0c19/models.py
+- PyTorch_YOLOv5 : https://github.com/hpc203/my_yolov5-pytorch
 - SSD: https://github.com/sgrvinod/a-PyTorch-Tutorial-to-Object-Detection/blob/43fd8be9e82b351619a467373d211ee5bf73cef8/model.py#L323
 - RetinaNet: https://github.com/kuangliu/pytorch-retinanet/blob/2d7c663350f330a34771a8fa6a4f37a2baa52a1d/retinanet.py#L8
 - Albumentations : https://albumentations.ai/docs/examples/example_bboxes/
