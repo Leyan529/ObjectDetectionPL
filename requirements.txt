@@ -7,13 +7,12 @@ opencv_python_headless==4.4.0.46
 Pillow==9.0.0
 
 PyYAML==6.0
+scipy==1.4.1
+tqdm==4.41.0
+
 torch==1.10.1
 torchinfo==0.0.8
 torchvision==0.9.1+cu102
-tqdm==4.41.0
-
-torch==1.8.1+cu102               
-torch==1.8.1 
 torchsummary==1.5.1 
 pytorch_lightning==1.2.6
 pytorch-lightning-bolts==0.3.0  
